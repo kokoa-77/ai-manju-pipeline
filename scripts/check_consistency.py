@@ -14,6 +14,11 @@ check_consistency.py —— AI漫剧 多集一致性检查
     python check_consistency.py --project .
     python check_consistency.py --project "D:\\我的漫剧项目"
     python check_consistency.py --project . --out 一致性报告.md
+    python check_consistency.py --project . --cps 4.5      # 真人风台词语速
+
+可选：项目里有 *剧情状态表*.csv 时，会检查「第 N 集结尾」和「第 N+1 集开头」
+每个角色的服装、伤妆、道具、昼夜、天气、场景是否接得上。列名见
+assets/剧情状态表模板.csv。
 
 退出码：
     0 = 没有错误      1 = 有错误（可放进发布前的自动检查）
@@ -45,6 +50,8 @@ RECOMMENDED_COLS = ["段时长", "段概述", "场景", "景别", "运镜", "动
                     "台词", "说话人", "音效", "参考素材", "段守则", "合并到"]
 
 ID_RE = re.compile(r"^(图片|音频|视频)(\d+)$")
+PLACEHOLDER = re.compile(r"^(角色|人物)\s*\d+$")
+STATE_FIELDS = ("服装版本", "伤妆/状态", "手持道具", "昼夜", "天气", "所在场景")
 SEG_RE = re.compile(r"^seg(\d+)$", re.IGNORECASE)
 NAME_HINT = re.compile(r"_v\d+\.[A-Za-z0-9]+$")
 REF_SPLIT = re.compile(r"[;；,，、/|\s]+")
@@ -223,11 +230,16 @@ def main():
                     help="指定分镜表（默认自动查找 *分镜表*.csv）")
     ap.add_argument("--out", default=None,
                     help="把报告写到文件（不带则打印到屏幕）")
+    ap.add_argument("--cps", type=float, default=5.0,
+                    help="台词语速（字/秒），默认 5；真人风建议 4–4.5")
     args = ap.parse_args()
 
     root = Path(args.project).expanduser().resolve()
     if not root.is_dir():
         print("[X] 不是目录：%s" % root)
+        return 2
+    if args.cps <= 0:
+        print("[X] --cps 必须大于 0")
         return 2
 
     rep = Report()
@@ -236,7 +248,8 @@ def main():
 
     add("=" * 68)
     add(" AI漫剧 · 多集一致性检查报告")
-    add(" 项目目录：%s" % root)
+    # 显示用户传入的路径，不展开成本机绝对路径（报告常被提交进仓库）
+    add(" 项目目录：%s" % args.project)
     add(" 检查时间：%s" % datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
     add("=" * 68)
     add("")
@@ -480,9 +493,35 @@ def main():
         for s in ep["segs"]:
             for sp in s["speakers"]:
                 all_speakers[sp].add(str(rel))
-                if re.match(r"^角色\s*\d+$", sp) or re.match(r"^人物\s*\d+$", sp):
+                if PLACEHOLDER.match(sp):
                     rep.err("%s %s：说话人写成了「%s」—— "
                             "必须写真实角色名，否则音色会串" % (rel, s["id"], sp))
+
+        # 4.3b 每条生成里，有台词的说话人必须挂自己的音色（按「合并到」把段连成一条）
+        runs, cur = [], []
+        for idx, s in enumerate(ep["segs"]):
+            cur.append(s)
+            nxt = ep["segs"][idx + 1]["id"] if idx + 1 < len(ep["segs"]) else None
+            target = next((cell(r, "合并到") for r in s["rows"] if cell(r, "合并到")), "")
+            if not (target and target == nxt):
+                runs.append(cur)
+                cur = []
+        for run in runs:
+            refs = set()
+            talkers = set()
+            for s in run:
+                for r in s["rows"]:
+                    refs.update(split_refs(cell(r, "参考素材")))
+                    sp = cell(r, "说话人")
+                    if cell(r, "台词") and sp and not PLACEHOLDER.match(sp):
+                        talkers.add(sp)
+            for sp in sorted(talkers):
+                hooked = any(aid in assets and assets[aid]["subject"] == sp
+                             and ID_RE.match(aid) and ID_RE.match(aid).group(1) == "音频"
+                             for aid in refs)
+                if not hooked:
+                    rep.warn("%s %s：「%s」有台词，但这条生成没挂 TA 的音频N 音色 —— "
+                             "会用系统默认音" % (rel, run[0]["id"], sp))
 
         # 4.4 台词密度
         for s in ep["segs"]:
@@ -494,7 +533,7 @@ def main():
                 if not pr:
                     continue
                 span = pr[1] - pr[0]
-                need = char_count(txt) / 5.0 + 0.5
+                need = char_count(txt) / args.cps + 0.5
                 if need > span + 0.01:
                     rep.err("%s 第 %d 行（%s）：台词「%s」约需 %.1fs，区间只有 %.1fs"
                             % (rel, rowno, s["id"],
@@ -540,7 +579,7 @@ def main():
 
     # 4.8 音色覆盖
     for sp, eps in sorted(all_speakers.items()):
-        if re.match(r"^角色\s*\d+$", sp):
+        if PLACEHOLDER.match(sp):
             continue
         has_voice = any(a["subject"] == sp and
                         ID_RE.match(aid) and
@@ -548,7 +587,7 @@ def main():
                         for aid, a in assets.items())
         if not has_voice:
             # 该角色是否真的说过话？all_speakers 只收有说话人的
-            rep.warn("角色「%s」有台词，但素材编号表里没有他的「音频N」音色参考 "
+            rep.warn("角色「%s」有台词，但素材编号表里没有 TA 的「音频N」音色参考 "
                      "—— 会导致该角色用系统默认音" % sp)
 
     # 4.9 资产文件存在性 + 命名规范
@@ -570,6 +609,46 @@ def main():
     if bad_names:
         rep.info("文件名不符合「<主体>_<类型>_<变体>_v<序号>.<ext>」的 %d 个：\n      %s"
                  % (len(bad_names), "\n      ".join(bad_names)))
+
+    # 4.10 剧情状态表：第 N 集结尾 vs 第 N+1 集开头
+    state_files = walk(root, "剧情状态表")
+    for sp_path in state_files:
+        try:
+            srows, _enc = read_csv(sp_path)
+        except Exception as e:
+            rep.err("读不了剧情状态表：%s（%s）" % (sp_path.name, e))
+            continue
+        states = {}   # (集号数字, 时点, 角色) -> row
+        for i, raw in enumerate(srows, start=2):
+            row = norm_row(raw)
+            m = re.search(r"\d+", cell(row, "集号"))
+            point = cell(row, "时点")
+            who = cell(row, "角色")
+            if not (m and point and who):
+                if any(row.values()):
+                    rep.warn("剧情状态表 %s 第 %d 行：集号 / 时点 / 角色 缺一项，跳过"
+                             % (sp_path.name, i))
+                continue
+            if point not in ("开头", "结尾"):
+                rep.warn("剧情状态表 %s 第 %d 行：时点写「开头」或「结尾」，现在是「%s」"
+                         % (sp_path.name, i, point))
+                continue
+            states[(int(m.group(0)), point, who)] = row
+        for (ep_no, point, who), end in sorted(states.items()):
+            if point != "结尾":
+                continue
+            start = states.get((ep_no + 1, "开头", who))
+            if start is None:
+                continue
+            diffs = []
+            for f in STATE_FIELDS:
+                a, b = cell(end, f), cell(start, f)
+                if a and b and a != b:
+                    diffs.append("%s「%s」→「%s」" % (f, a, b))
+            if diffs:
+                rep.warn("剧情状态接不上：%s 第 %d 集结尾 → 第 %d 集开头，%s"
+                         "（如果是剧情里换了，在下一集开头交代清楚）"
+                         % (who, ep_no, ep_no + 1, "；".join(diffs)))
 
     # ---------- 5. 系列圣经锚点 ----------
     bible_anchors = []
