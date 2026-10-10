@@ -14,7 +14,7 @@ Copyright (c) 2026 kokoa-77
 2) 文档与内容 —— CC BY 4.0
    ─────────────────────────────────────────────────────────
    适用范围：SKILL.md、README.md、LICENSE 系列文件、
-             references/、assets/、examples/、_selftest/ 下的全部内容
+             references/、assets/、examples/、docs/、_selftest/、.github/ 下的全部内容
 
    全文见：LICENSE-CC-BY-4.0.txt
    官方地址：https://creativecommons.org/licenses/by/4.0/
