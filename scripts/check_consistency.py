@@ -53,7 +53,7 @@ ID_RE = re.compile(r"^(图片|音频|视频)(\d+)$")
 PLACEHOLDER = re.compile(r"^(角色|人物)\s*\d+$")
 STATE_FIELDS = ("服装版本", "伤妆/状态", "手持道具", "昼夜", "天气", "所在场景")
 SEG_RE = re.compile(r"^seg(\d+)$", re.IGNORECASE)
-NAME_HINT = re.compile(r"_v\d+\.[A-Za-z0-9]+$")
+NAME_HINT = re.compile(r"_(v\d+|\d+s)\.[A-Za-z0-9]+$")  # 音色参考用时长当后缀：林晚_音色参考_12s.wav
 REF_SPLIT = re.compile(r"[;；,，、/|\s]+")
 
 ALIAS = {
@@ -607,7 +607,7 @@ def main():
         rep.info("编号表登记但项目里找不到的文件 %d 个（可能还没生成）：\n      %s"
                  % (len(missing_files), "\n      ".join(missing_files)))
     if bad_names:
-        rep.info("文件名不符合「<主体>_<类型>_<变体>_v<序号>.<ext>」的 %d 个：\n      %s"
+        rep.info("文件名不符合「<主体>_<类型>_<变体>_v<序号>.<ext>」（音色参考是 _<时长>s.wav）的 %d 个：\n      %s"
                  % (len(bad_names), "\n      ".join(bad_names)))
 
     # 4.10 剧情状态表：第 N 集结尾 vs 第 N+1 集开头

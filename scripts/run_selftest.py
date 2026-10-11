@@ -91,6 +91,23 @@ def main():
     code, log = run("check_mv_shots.py", "--shots", T / "MV测试" / "坏_MV分镜表.csv")
     check("坏 MV 分镜表：3 错 4 警 2 提示，退出码 1", code == 1 and "有 3 个错误需要修（4 个警告 / 2 条提示）" in log, log[-1500:])
 
+    print("beat_grid.py")
+    filled, bars = tmp / "bars.csv", tmp / "bars.srt"
+    code, log = run("beat_grid.py", "--bpm", 120, "--offset", 0.5, "--change", "7:150",
+                    "--shots", T / "MV测试" / "小节_MV分镜表.csv", "--out", filled, "--srt", bars)
+    body = filled.read_text(encoding="utf-8-sig") if filled.exists() else ""
+    check("按小节填拍点时间：填 5 行、拍级写法也能算", "填了 5 行" in log
+          and "s01,前奏,1-2,0.5-4.5,4.0" in body and "s04,主歌A,5.3-6,9.5-12.5,3.0" in body, log + body)
+    check("中途变速：第 7 小节起 150 BPM", "s05,副歌,7-8,12.5-15.7,3.2" in body, body)
+    check("已填但对不上的报警告、写反的小节报错，退出码 1",
+          code == 1 and "按小节 9 算是 `15.7-17.3`" in log and "小节 `10-9` 写法错" in log, log)
+    srt = bars.read_text(encoding="utf-8-sig") if bars.exists() else ""
+    check("小节字幕带段落名", "00:00:12,500 --> 00:00:14,100\n第7小节 · 副歌" in srt, srt[:600])
+    code, log = run("beat_grid.py", "--bpm", 120, "--offset", 0.5, "--change", "7:150", "--force",
+                    "--shots", T / "MV测试" / "小节_MV分镜表.csv", "--out", filled)
+    body = filled.read_text(encoding="utf-8-sig") if filled.exists() else ""
+    check("--force 覆盖已填的拍点时间", "s06,副歌,9,15.7-17.3,1.6" in body, body)
+
     print("make_srt.py")
     srt = tmp / "mv.srt"
     code, log = run("make_srt.py", "--shots", T / "MV测试" / "正常_MV分镜表.csv", "--out", srt)
@@ -105,6 +122,7 @@ def main():
     code, log = run("log_summary.py", "--log", T / "生成日志示例.csv")
     check("汇总：8 次生成、平均抽 2.3 次、1 个镜头未过",
           "生成 8 次，涉及 4 个镜头" in log and "平均抽 **2.3** 次" in log and "EP01/seg02" in log, log[:1200])
+    check("按镜头类型算每个镜头平均耗时（报价用）", "| 1 | 1 | 1 / 0 / 0 | 100% | 1.0 | 1.5h | 90 分钟 | 0 |" in log, log[-1500:])
 
     print("init_project.py")
     code, log = run("init_project.py", "--type", "mv", "--name", "自测", "--dir", tmp, "--role", "角色A")
@@ -114,8 +132,10 @@ def main():
     (proj / "00_企划/风格圣经.md").write_text("我改过", encoding="utf-8")
     code, log = run("init_project.py", "--type", "mv", "--name", "自测", "--dir", tmp)
     check("重复运行不覆盖已有文件", (proj / "00_企划/风格圣经.md").read_text(encoding="utf-8") == "我改过", log)
-    code, log = run("init_project.py", "--type", "manju", "--name", "自测", "--dir", tmp)
-    check("漫剧项目骨架建好", code == 0 and (tmp / "漫剧项目_自测/01_剧本/第01集_分镜表.csv").is_file(), log)
+    code, log = run("init_project.py", "--type", "manju", "--name", "自测", "--dir", tmp, "--role", "林晚")
+    proj = tmp / "漫剧项目_自测"
+    check("漫剧项目骨架建好（含剧集大纲、角色圣经）", code == 0 and (proj / "01_剧本/第01集_分镜表.csv").is_file()
+          and (proj / "01_剧本/剧集大纲.md").is_file() and (proj / "02_资产/角色/林晚/林晚_角色圣经.md").is_file(), log)
 
     print()
     if failed:

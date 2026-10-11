@@ -76,12 +76,13 @@ def tries_per_pass(shots):
 
 def table(title, groups):
     out = ["", f"## {title}", "",
-           "| 分组 | 生成次数 | 过 / 修 / 废 | 过率 | 每个镜头平均抽几次 | 耗时 | 花费 |",
-           "|---|---|---|---|---|---|---|"]
+           "| 分组 | 生成次数 | 过 / 修 / 废 | 过率 | 每个镜头平均抽几次 | 耗时 | 每个镜头平均耗时 | 花费 |",
+           "|---|---|---|---|---|---|---|---|"]
     for k, g in groups.items():
         rate = g["res"]["过"] / g["n"] if g["n"] else 0
+        per_shot = g["min"] / len(g["shots"]) if g["shots"] else 0
         out.append(f"| {k} | {g['n']} | {g['res']['过']} / {g['res']['修']} / {g['res']['废']} | "
-                   f"{rate:.0%} | {tries_per_pass(g['shots'])} | {g['min']/60:.1f}h | {g['cost']:g} |")
+                   f"{rate:.0%} | {tries_per_pass(g['shots'])} | {g['min']/60:.1f}h | {per_shot:.0f} 分钟 | {g['cost']:g} |")
     return out
 
 
@@ -121,7 +122,8 @@ def main():
     out += table("按作品 / 集数", group_stats(rows, lambda r: r.get("编号", "")))
     out += table("按工具", group_stats(rows, lambda r: r.get("工具", "")))
     if any(r.get("镜头类型") for r in rows):
-        out += table("按镜头类型", group_stats(rows, lambda r: r.get("镜头类型", "")))
+        out += table("按镜头类型（报价用「每个镜头平均耗时」，见 references/15 第四节）",
+                     group_stats(rows, lambda r: r.get("镜头类型", "")))
     if any(r.get("模型版本") for r in rows):
         out += table("按工具 + 模型版本（模型升级后对比用）",
                      group_stats(rows, lambda r: f"{r.get('工具','')} {r.get('模型版本','')}".strip()))
